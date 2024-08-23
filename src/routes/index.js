@@ -9,9 +9,9 @@ import Lista from "../pages/lista/index.js";
 const Router = () => {
   return (
     <Routes>      
-        <Route path="/sendfatura" element={<SendFatura />} />
-        <Route path="/dash" element={<Dashboard />} /> 
-        <Route path="/" element={<Lista />} />   
+        <Route path="/" element={<SendFatura />} />
+        {/* <Route path="/dash" element={<Dashboard />} /> 
+        <Route path="/" element={<Lista />} />    */}
     </Routes>
   );
 }

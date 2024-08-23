@@ -17,21 +17,41 @@ function SendFatura() {
   const [currentPage, setCurrentPage] = useState(1); 
   const [loading, setLoading] = useState(false);
 
-  const convertImageToText = useCallback(async () => {    
-    if(!selectedImage) return;
+  const convertImageToText = useCallback(async () => {
+    if (!selectedImage) return;
+    
     setLoading(true);
     await worker.load();
     await worker.loadLanguage("por");
     await worker.initialize("por");
+    
+    const startTime = performance.now(); // Inicia o cronômetro
+    
     await worker.recognize(selectedImage)
-    .then((result) => {
-      setLoading(false);
-      setTextResult(result.data.text);     
-     }
-    )
-    //eslint-disable-next-line
+      .then((result) => {
+        const endTime = performance.now(); // Finaliza o cronômetro
+        const processingTime = endTime - startTime; // Calcula o tempo de processamento
+        
+        const text = result.data.text;
+        const confidence = result.data.confidence;
+        const wordCount = text.split(/\s+/).filter(word => word.length > 0).length; // Contagem de palavras
+        
+        setLoading(false);
+        setTextResult(text);
+        console.log(text);
+        console.log(confidence);
+        console.log(wordCount);
+  
+        // Defina as métricas para uso posterior
+        // setMetrics({
+        //   confidence: confidence,
+        //   wordCount: wordCount,
+        //   processingTime: processingTime,
+        // });
+      });
+    // eslint-disable-next-line
   }, [selectedImage]);
-
+  
   useEffect(() => {
     convertImageToText();
   }, [selectedImage, convertImageToText])
@@ -88,100 +108,6 @@ function SendFatura() {
   }, [pdf, currentPage]);
 
 
- 
-const handleChangeText = () => {
- const texto = textResult.toString();
-
-
- let  numeroCliente = texto.match(/Nº DA INSTALAÇÃO[\s\S]*?\b(\d{10})\b/);
- if (numeroCliente !== null) {
-  numeroCliente = numeroCliente[1];
- } 
-
- let mesReferencia = texto.match(/\b[A-Za-z]{3}120\d{2}\b/g);
-
- if (mesReferencia === null) {
-   mesReferencia = texto.match(/\b[A-Za-z]{3}\/20\d{2}\b/g)[0]
- } else {
-   mesReferencia = mesReferencia[0].replace("120", "/20");
- }
-
- let dataVencimento = texto.match(/(\d{2})l(\d{2})l(\d{4})/);
-  if (dataVencimento === null) {
-    dataVencimento = texto.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    dataVencimento = dataVencimento[0];
-  } else {
-    dataVencimento = dataVencimento[0].replace("l", "/").replace("l", "/");
-  }
- 
-  let valorTotal = texto.match(/TOTAL (\d+,\d{2})/);
-  if (valorTotal !== null) {    
-    valorTotal = valorTotal[1];
-  } 
-
-  let energiaEletrica = texto.match(/Energia Elétrica (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/)
-  if (energiaEletrica === null) {
-    energiaEletrica = ['','','','']
-  }
-
-   let energiaInjetada = texto.match(/Energia injetada HFP. (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/)
-  if (energiaInjetada === null) {
-    energiaInjetada = texto.match(/Energia compensada GD \| (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/)
-  }else if (energiaInjetada === null) {
-    energiaInjetada = ['','','','']
-  }
-  console.log('texto', texto)
-  console.log(energiaInjetada)
-  // const energiaCompensada = texto.match(/Energia SCEE s\/ ICMS (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/) 
-  let energiaCompensada = texto.match(/s\/ ICMS (\S+)\s+(\S+)\s+(\S+)\s+(\S+)/)
-  if (energiaCompensada === null) {   
-    energiaCompensada = ['','','','']
-  } 
-  console.log(energiaCompensada)
- 
-  let contribIlumPublicaMunicipal = texto.match(/Contrib Ilum Publica Municipal (\d+,\d{2})/);
-  if (contribIlumPublicaMunicipal !== null) {
-    contribIlumPublicaMunicipal = contribIlumPublicaMunicipal[1];
-  } 
-
-  const fatura = {
-    numero_cliente: numeroCliente,
-    mes_referencia: mesReferencia,
-    data_vencimento: dataVencimento,
-    energia_eletrica_quantidade: energiaEletrica[2] || '',
-    energia_eletrica_preco_unitario: energiaEletrica[3] || '' ,
-    energia_eletrica_valor: energiaEletrica[4] || '',
-    energia_injetada_quantidade: energiaInjetada[2] || '',
-    energia_injetada_preco_unitario: energiaInjetada[3] || '',
-    energia_injetada_valor: energiaInjetada[4] || '',
-    energia_sICMS_quantidade: energiaCompensada[2]  || '',
-    energia_sICMS_preco_unitario: energiaCompensada[3] || '',
-    energia_sICMS_valor: energiaCompensada[4] || '',
-    contrib_ilum_publica_municipal: contribIlumPublicaMunicipal,
-    valor_total: valorTotal
-  }
-
-// URL do endpoint onde você quer enviar o objeto
-const url = 'http://localhost:3333/fatura';
-
-//Enviando o objeto usando o método POST do Axios
-axios.post(url, fatura)
-  .then(response => {
-    console.log('Resposta do servidor:', response.data);
-    alert("Dados enviados com sucesso!"); 
-    navigate('/')
-
-  })
-  .catch(error => {
-    //alert erro 409
-    alert("Erro ao enviar os dados \n Verifique se a fatura já foi enviada!");
-    
-
-    console.error('Ocorreu um erro:', error);
-  });
-
-}
-
   const styles = {
     wrapper: {
       display: "flex",
@@ -235,10 +161,7 @@ axios.post(url, fatura)
       />       
        <button onClick={handleChangeImage}
        className="btn btn-primary mx-2"
-       >Scanear</button>
-       <button onClick={handleChangeText}
-       className="btn btn-primary mx-2"
-       >Dados enviar</button>
+       >Scanear</button>      
         <button onClick={clearAll}
         className="btn btn-danger mx-2"
         >Limpar</button>
