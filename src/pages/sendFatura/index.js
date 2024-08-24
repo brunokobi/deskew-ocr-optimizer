@@ -2,10 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { createWorker } from 'tesseract.js';
 import './App.css';
 import { CardLoadingSolar } from '../../component/loading';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import cv from "@techstark/opencv-js";
 const PDFJS = window.pdfjsLib;
-
 function SendFatura() {
   const navigate = useNavigate();  
   const [selectedImage, setSelectedImage] = useState(null);
@@ -16,6 +15,16 @@ function SendFatura() {
   const [images, setImages] = useState([]);
   const [currentPage, setCurrentPage] = useState(1); 
   const [loading, setLoading] = useState(false);
+  
+  const[confidence,setConfidence] = useState(0);
+  const[wordCount,setWordCount] = useState(0);
+  const[processingTime,setProcessingTime] = useState(0);
+  const[WER,setWER] = useState(0);
+  const[CER,setCER] = useState(0);
+  const[charCount,setCharCount] = useState(0);
+  
+
+
 
   const convertImageToText = useCallback(async () => {
     if (!selectedImage) return;
@@ -34,23 +43,22 @@ function SendFatura() {
         
         const text = result.data.text;
         const confidence = result.data.confidence;
-        const wordCount = text.split(/\s+/).filter(word => word.length > 0).length; // Contagem de palavras
-        
+        const words = text.split(/\s+/).filter(word => word.length > 0); // Lista de palavras
+        const wordCount = words.length; // Contagem de palavras
+        const charCount = text.length; // Contagem de caracteres
         setLoading(false);
         setTextResult(text);
-        console.log(text);
-        console.log(confidence);
-        console.log(wordCount);
-  
+        
         // Defina as métricas para uso posterior
-        // setMetrics({
-        //   confidence: confidence,
-        //   wordCount: wordCount,
-        //   processingTime: processingTime,
-        // });
+        setConfidence(confidence);
+        setWordCount(wordCount);
+        setCharCount(charCount);
+        setProcessingTime(processingTime);
+       
       });
     // eslint-disable-next-line
   }, [selectedImage]);
+
   
   useEffect(() => {
     convertImageToText();
@@ -58,13 +66,108 @@ function SendFatura() {
 
   const handleChangeImage = e => {   
     if(images) {
-      setSelectedImage(images[0]);
-      //setTextResult("teste")
+      setSelectedImage(images[0]);     
     } else {
       setSelectedImage(null);
       setTextResult("")
     }
   }
+
+
+  
+  const handleDeskewOCROptimize = async () => {
+    if (images) {
+        const imageElement = document.createElement('img');
+        imageElement.src = images;
+        
+        imageElement.onload = async () => {
+            // Carregar a imagem com OpenCV.js
+            const src = cv.imread(imageElement);
+            
+            // Converter para escala de cinza
+            const gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);            
+            
+            // Aplicar detecção de bordas
+            const edges = new cv.Mat();
+            cv.Canny(gray, edges, 50, 150);
+            
+            // Aplicar a Transformação de Hough para detectar linhas
+            const lines = new cv.Mat();
+            cv.HoughLines(edges, lines, 1, Math.PI / 180, 100); // Ajuste o parâmetro de detecção conforme necessário
+            
+            let angleSum = 0;
+            let lineCount = 0;
+
+            // Calcular o ângulo médio das linhas detectadas
+            for (let i = 0; i < lines.rows; i++) {
+                const line = lines.row(i);
+                const rho = line.data32F[0];
+                const theta = line.data32F[1];
+
+                // Calcular o ângulo da linha
+                const angle = theta * 180 / Math.PI - 90;
+                angleSum += angle;
+                lineCount++;
+            }
+
+            let angle = 0;
+            if (lineCount > 0) {
+                angle = angleSum / lineCount;
+            }
+
+            // Corrigir a inclinação da imagem
+            let rotationAngle = -angle;
+
+            // Garantir que o eixo Y não seja invertido
+            if (rotationAngle > 90) {
+                rotationAngle -= 180;
+            } else if (rotationAngle < -90) {
+                rotationAngle += 180;
+            }
+
+            if (Math.abs(rotationAngle) > 0) {
+                const center = new cv.Point(src.cols / 2, src.rows / 2);
+                const M = cv.getRotationMatrix2D(center, rotationAngle, 1);
+                const dst = new cv.Mat();
+                cv.warpAffine(src, dst, M, new cv.Size(src.cols, src.rows), cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+                
+                // Exibir a imagem corrigida
+                const deskewedCanvas = document.createElement('canvas');
+                cv.imshow(deskewedCanvas, dst);               
+                setSelectedImage(deskewedCanvas.toDataURL());
+
+                // Limpar a memória
+                dst.delete();
+                M.delete();
+            } else {
+                // Manter a imagem original se o ângulo estiver dentro da tolerância
+                setSelectedImage(images);
+            }
+            
+            // Limpar a memória
+            edges.delete();
+            lines.delete();
+            src.delete();
+            gray.delete();            
+        };
+        
+        imageElement.onerror = (e) => {
+            console.error('Erro ao carregar a imagem:', e);
+        };
+    } else {
+        setSelectedImage(null);
+        setTextResult("");
+    }
+};
+
+
+
+
+
+
+  
+  
 
   //const  async function showPdf(event) {
   const showPdf = async (event) => {
@@ -89,7 +192,7 @@ function SendFatura() {
     for (let i = 1; i <= pdf.numPages; i++) {
       var page = await pdf.getPage(i);
       var viewport = page.getViewport({ scale: 3 });
-      canvas.height = viewport.height*0.38;
+      canvas.height = viewport.height;
       canvas.width = viewport.width;
       var render_context = {
         canvasContext: canvas.getContext("2d"),
@@ -141,7 +244,7 @@ function SendFatura() {
   return (
     <div className="bg-light">
       <h2 className='text-center text-primary mb-4' >
-        Enviar Fatura de Energia
+        Teste de OCR Tessaract.js
       </h2>
       <div className="containe text-center text-primary">       
       <button
@@ -158,10 +261,13 @@ function SendFatura() {
         accept="application/pdf"
         hidden
         onChange={showPdf}
-      />       
+      />
+      <button onClick={handleDeskewOCROptimize}
+       className="btn btn-primary mx-2"
+       >Deskew</button>          
        <button onClick={handleChangeImage}
        className="btn btn-primary mx-2"
-       >Scanear</button>      
+       >Tesseract</button>      
         <button onClick={clearAll}
         className="btn btn-danger mx-2"
         >Limpar</button>
@@ -199,6 +305,14 @@ function SendFatura() {
         {textResult && (
           <div className="box-p">
             <p>{textResult}</p>
+            <p>Confiança: {confidence}%</p>
+            <p>Palavras: {wordCount}</p>
+            <p>Caracteres: {charCount}</p>
+            <p>Tempo de processamento: {processingTime.toFixed(2)} ms</p>
+            <p>Taxa de Erro de Palavra: {WER.toFixed(2)}</p>
+            <p>Taxa de Erro de Caractere: {CER.toFixed(2)}</p>
+
+            
           </div>
         )}
         {loading && <CardLoadingSolar />}
