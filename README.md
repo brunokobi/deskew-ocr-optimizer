@@ -141,6 +141,17 @@ Este projeto é uma aplicação React que utiliza OCR (Reconhecimento Óptico de
 };
 
 ```
+## Telas da Aplicação
+<p align="center">Documento 1</p>
+<p align="center">
+<img src="public/media/doc1-t.jpg" width="300">
+<img src="public/media/doc1-d.jpg" width="300">
+</p>
+<p align="center">Documento 2</p>
+<p align="center"> 
+<img src="public/media/doc1-t.jpg" width="300">
+<img src="public/media/doc1-d.jpg" width="300">
+</p>
 
 ## Contribuição
 
