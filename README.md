@@ -1,5 +1,6 @@
 
 # Deskew OCR Optimizer
+APRIMORAMENTO DO RECONHECIMENTO ÓPTICO DE CARACTERES (OCR) EM DOCUMENTOS DIGITALIZADOS: CORREÇÃO DE INCLINAÇÃO COM OPENCV.JS E AVALIAÇÃO DE PRECISÃO DO TESSERACT.JS.
 
 Este projeto é uma aplicação React que utiliza OCR (Reconhecimento Óptico de Caracteres) para extrair texto de imagens e PDFs. Ele faz uso das bibliotecas `tesseract.js` e `opencv-js` para realizar o OCR e otimizar as imagens.
 
