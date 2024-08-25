@@ -5,8 +5,7 @@ import { CardLoadingSolar } from '../../component/loading';
 import { useNavigate } from 'react-router-dom';
 import cv from "@techstark/opencv-js";
 const PDFJS = window.pdfjsLib;
-function SendFatura() {
-  const navigate = useNavigate();  
+function Deskew() {  
   const [selectedImage, setSelectedImage] = useState(null);
   const [textResult, setTextResult] = useState("");
   const worker = createWorker();
@@ -22,12 +21,14 @@ function SendFatura() {
   const[WER,setWER] = useState(0);
   const[CER,setCER] = useState(0);
   const[charCount,setCharCount] = useState(0);
+  const[angleStart,setAngleStart] = useState(90);
   
 
 
 
   const convertImageToText = useCallback(async () => {
     if (!selectedImage) return;
+    const textoOriginal = 'O MENINO LEITOR MARCOS É UM MENINO INTELIGENTE, GOSTA DE ESTUDAR E CONHECER COISAS NOVAS. TODO DIA ELE VAI NA BIBLIOTECA DE SUA CIDADE PARA RETIRAR LIVROS DIFERENTES, GOSTA DE AVENTURAS, AÇÃO, LIVROS COM ANIMAIS E LIVROS CONTANDO NOVIDADES DE OUTROS PAÍSES. SEU SONHO É VIAJAR E CONHECER PARIS'
     
     setLoading(true);
     await worker.load();
@@ -48,12 +49,22 @@ function SendFatura() {
         const charCount = text.length; // Contagem de caracteres
         setLoading(false);
         setTextResult(text);
+        // verificar quantas palavras do texto original estão no texto extraído
+        const originalWords = textoOriginal.split(/\s+/).filter(word => word.length > 0);
+        const correctWords = words.filter(word => originalWords.includes(word));
+        console.log(originalWords);
+        const WER = (originalWords.length - correctWords.length) / originalWords.length;
+        const CER = (textoOriginal.length - correctWords.join('').length) / textoOriginal.length;
+
         
         // Defina as métricas para uso posterior
         setConfidence(confidence);
         setWordCount(wordCount);
         setCharCount(charCount);
-        setProcessingTime(processingTime);
+        setProcessingTime(processingTime/1000);
+        setWER(WER);
+        setCER(CER);
+
        
       });
     // eslint-disable-next-line
@@ -74,7 +85,6 @@ function SendFatura() {
   }
 
 
-  
   const handleDeskewOCROptimize = async () => {
     if (images) {
         const imageElement = document.createElement('img');
@@ -88,68 +98,69 @@ function SendFatura() {
             const gray = new cv.Mat();
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);            
             
-            // Aplicar detecção de bordas
-            const edges = new cv.Mat();
-            cv.Canny(gray, edges, 50, 150);
+            // Binarização da imagem para encontrar contornos
+            const binary = new cv.Mat();
+            cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
             
-            // Aplicar a Transformação de Hough para detectar linhas
-            const lines = new cv.Mat();
-            cv.HoughLines(edges, lines, 1, Math.PI / 180, 100); // Ajuste o parâmetro de detecção conforme necessário
+            // Encontrar contornos
+            const contours = new cv.MatVector();
+            const hierarchy = new cv.Mat();
+            cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
             
-            let angleSum = 0;
-            let lineCount = 0;
-
-            // Calcular o ângulo médio das linhas detectadas
-            for (let i = 0; i < lines.rows; i++) {
-                const line = lines.row(i);
-                const rho = line.data32F[0];
-                const theta = line.data32F[1];
-
-                // Calcular o ângulo da linha
-                const angle = theta * 180 / Math.PI - 90;
-                angleSum += angle;
-                lineCount++;
-            }
-
-            let angle = 0;
-            if (lineCount > 0) {
-                angle = angleSum / lineCount;
-            }
-
-            // Corrigir a inclinação da imagem
-            let rotationAngle = -angle;
-
-            // Garantir que o eixo Y não seja invertido
-            if (rotationAngle > 90) {
-                rotationAngle -= 180;
-            } else if (rotationAngle < -90) {
-                rotationAngle += 180;
-            }
-
-            if (Math.abs(rotationAngle) > 0) {
-                const center = new cv.Point(src.cols / 2, src.rows / 2);
-                const M = cv.getRotationMatrix2D(center, rotationAngle, 1);
-                const dst = new cv.Mat();
-                cv.warpAffine(src, dst, M, new cv.Size(src.cols, src.rows), cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+            if (contours.size() > 0) {
+                const contour = contours.get(0);
+                const rotatedRect = cv.minAreaRect(contour);
+                let angle = rotatedRect.angle;
+                setAngleStart(angle);
                 
-                // Exibir a imagem corrigida
-                const deskewedCanvas = document.createElement('canvas');
-                cv.imshow(deskewedCanvas, dst);               
-                setSelectedImage(deskewedCanvas.toDataURL());
+                // Ajustar o ângulo conforme necessário
+                if (rotatedRect.size.width < rotatedRect.size.height) {
+                    angle += 90;
+                }
+                
+                // Se a inclinação inicial for maior para a direita, rotaciona no sentido anti-horário
+                if (angle > 0) {
+                    angle = angle - 180;
+                }
+                // Se a inclinação inicial for maior para a esquerda, rotaciona no sentido horário
+                else if (angle < 0) {
+                    angle = angle + 180;
+                }
 
+                // Verificar se o ângulo está próximo de 0 ou 180 (imagem já está corretamente alinhada)
+                if (Math.abs(angle - 180) < 1 || Math.abs(angle) < 1) { // Tolerância de 1 grau
+                    // Manter a imagem original
+                    setSelectedImage(images);
+                } else {
+                    // Corrigir a inclinação da imagem
+                    const center = new cv.Point(src.cols / 2, src.rows / 2);
+                    const M = cv.getRotationMatrix2D(center, angle, 1);
+                    const dst = new cv.Mat();
+                    cv.warpAffine(src, dst, M, new cv.Size(src.cols, src.rows), cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+                    
+                    // Exibir a imagem corrigida
+                    const deskewedCanvas = document.createElement('canvas');
+                    cv.cvtColor(dst, dst, cv.COLOR_RGBA2GRAY); // Convert to grayscale
+                    cv.imshow(deskewedCanvas, dst);
+                    setSelectedImage(deskewedCanvas.toDataURL());
+
+                    // Limpar a memória
+                    dst.delete();
+                    M.delete();
+                }
+                
                 // Limpar a memória
-                dst.delete();
-                M.delete();
+                contour.delete();
             } else {
-                // Manter a imagem original se o ângulo estiver dentro da tolerância
-                setSelectedImage(images);
+                console.error('Nenhum contorno encontrado na imagem.');
             }
             
             // Limpar a memória
-            edges.delete();
-            lines.delete();
             src.delete();
-            gray.delete();            
+            gray.delete();
+            binary.delete();
+            contours.delete();
+            hierarchy.delete();
         };
         
         imageElement.onerror = (e) => {
@@ -160,11 +171,6 @@ function SendFatura() {
         setTextResult("");
     }
 };
-
-
-
-
-
 
   
   
@@ -244,7 +250,7 @@ function SendFatura() {
   return (
     <div className="bg-light">
       <h2 className='text-center text-primary mb-4' >
-        Teste de OCR Tessaract.js
+        Teste de OCR Tesseract.js
       </h2>
       <div className="containe text-center text-primary">       
       <button
@@ -308,9 +314,11 @@ function SendFatura() {
             <p>Confiança: {confidence}%</p>
             <p>Palavras: {wordCount}</p>
             <p>Caracteres: {charCount}</p>
-            <p>Tempo de processamento: {processingTime.toFixed(2)} ms</p>
-            <p>Taxa de Erro de Palavra: {WER.toFixed(2)}</p>
-            <p>Taxa de Erro de Caractere: {CER.toFixed(2)}</p>
+            <p>Tempo de processamento: {processingTime.toFixed(2)}s</p>
+            <p>WED: {WER.toFixed(2)}</p>
+            <p>CER: {CER.toFixed(2)}</p>
+            <p>Ângulo de inclinação inicial : {angleStart.toFixed(2)}°</p>
+           
 
             
           </div>
@@ -325,4 +333,4 @@ function SendFatura() {
   );
 }
 
-export default SendFatura;
+export default Deskew;
