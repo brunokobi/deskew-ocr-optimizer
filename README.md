@@ -1,4 +1,4 @@
-```markdown
+
 # Deskew OCR Optimizer
 
 Este projeto é uma aplicação React que utiliza OCR (Reconhecimento Óptico de Caracteres) para extrair texto de imagens e PDFs. Ele faz uso das bibliotecas `tesseract.js` e `opencv-js` para realizar o OCR e otimizar as imagens.
@@ -21,12 +21,11 @@ Este projeto é uma aplicação React que utiliza OCR (Reconhecimento Óptico de
 
 1. Clone o repositório:
    ```bash
-   git clone https://github.com/seu-usuario/sendfatura.git
+   git clone https://github.com/brunokobi/deskew-ocr-optimizer.git
    ```
 2. Navegue até o diretório do projeto:
    ```bash
-   cd sendfatura
-   ```
+   cd deskew
 3. Instale as dependências:
    ```bash
    npm install
@@ -46,78 +45,13 @@ Este projeto é uma aplicação React que utiliza OCR (Reconhecimento Óptico de
 ## Estrutura do Código
 
 - `App.js`: Componente principal da aplicação.
-- `SendFatura.js`: Componente que contém a lógica de OCR e manipulação de imagens.
+- `Deskew.js`: Componente que contém a lógica de OCR e manipulação de imagens.
 - `App.css`: Estilos da aplicação.
 - `loading.js`: Componente de carregamento.
 
 ## Exemplo de Código
 
 ```javascript
-import { useCallback, useEffect, useState } from 'react';
-import { createWorker } from 'tesseract.js';
-import './App.css';
-import { CardLoadingSolar } from '../../component/loading';
-import { useNavigate } from 'react-router-dom';
-import cv from "@techstark/opencv-js";
-
-function SendFatura() {
-  const navigate = useNavigate();  
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [textResult, setTextResult] = useState("");
-  const worker = createWorker();
-  const [pdf, setPdf] = useState(""); 
-  const [images, setImages] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1); 
-  const [loading, setLoading] = useState(false);
-  const [confidence, setConfidence] = useState(0);
-  const [wordCount, setWordCount] = useState(0);
-  const [processingTime, setProcessingTime] = useState(0);
-  const [WER, setWER] = useState(0);
-  const [CER, setCER] = useState(0);
-  const [charCount, setCharCount] = useState(0);
-
-  const convertImageToText = useCallback(async () => {
-    if (!selectedImage) return;
-    
-    setLoading(true);
-    await worker.load();
-    await worker.loadLanguage("por");
-    await worker.initialize("por");
-    
-    const startTime = performance.now();
-    
-    await worker.recognize(selectedImage)
-      .then((result) => {
-        const endTime = performance.now();
-        const processingTime = endTime - startTime;
-        
-        const text = result.data.text;
-        const confidence = result.data.confidence;
-        const words = text.split(/\s+/).filter(word => word.length > 0);
-        const wordCount = words.length;
-        const charCount = text.length;
-        setLoading(false);
-        setTextResult(text);
-        
-        setConfidence(confidence);
-        setWordCount(wordCount);
-        setCharCount(charCount);
-        setProcessingTime(processingTime);
-      });
-  }, [selectedImage]);
-
-  useEffect(() => {
-    convertImageToText();
-  }, [selectedImage, convertImageToText]);
-
-  const handleChangeImage = e => {   
-    if(images) {
-      setSelectedImage(images[0]);     
-    } else {
-      setSelectedImage(null);
-      setTextResult("");
-    }
-  };
 
   const handleDeskewOCROptimize = async () => {
     if (images) {
@@ -125,34 +59,87 @@ function SendFatura() {
         imageElement.src = images;
         
         imageElement.onload = async () => {
+            // Carregar a imagem com OpenCV.js
             const src = cv.imread(imageElement);
+            
+            // Converter para escala de cinza
             const gray = new cv.Mat();
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);            
-            const edges = new cv.Mat();
-            cv.Canny(gray, edges, 50, 150);
-            const lines = new cv.Mat();
-            cv.HoughLines(edges, lines, 1, Math.PI / 180, 100);
             
-            let angleSum = 0;
-            let lineCount = 0;
+            // Binarização da imagem para encontrar contornos
+            const binary = new cv.Mat();
+            cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+            
+            // Encontrar contornos
+            const contours = new cv.MatVector();
+            const hierarchy = new cv.Mat();
+            cv.findContours(binary, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            
+            if (contours.size() > 0) {
+                const contour = contours.get(0);
+                const rotatedRect = cv.minAreaRect(contour);
+                let angle = rotatedRect.angle;
+                setAngleStart(angle);
+                
+                // Ajustar o ângulo conforme necessário
+                if (rotatedRect.size.width < rotatedRect.size.height) {
+                    angle += 90;
+                }
+                
+                // Se a inclinação inicial for maior para a direita, rotaciona no sentido anti-horário
+                if (angle > 0) {
+                    angle = angle - 180;
+                }
+                // Se a inclinação inicial for maior para a esquerda, rotaciona no sentido horário
+                else if (angle < 0) {
+                    angle = angle + 180;
+                }
 
-            for (let i = 0; i < lines.rows; i++) {
-                const line = lines.row(i);
-                const rho = line.data32F[0];
-                const theta = line.data32F[1];
-                const angle = theta * 180 / Math.PI - 90;
-                angleSum += angle;
-                lineCount++;
-            }
+                // Verificar se o ângulo está próximo de 0 ou 180 (imagem já está corretamente alinhada)
+                if (Math.abs(angle - 180) < 1 || Math.abs(angle) < 1) { // Tolerância de 1 grau
+                    // Manter a imagem original
+                    setSelectedImage(images);
+                } else {
+                    // Corrigir a inclinação da imagem
+                    const center = new cv.Point(src.cols / 2, src.rows / 2);
+                    const M = cv.getRotationMatrix2D(center, angle, 1);
+                    const dst = new cv.Mat();
+                    cv.warpAffine(src, dst, M, new cv.Size(src.cols, src.rows), cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+                    
+                    // Exibir a imagem corrigida
+                    const deskewedCanvas = document.createElement('canvas');
+                    cv.cvtColor(dst, dst, cv.COLOR_RGBA2GRAY); // Convert to grayscale
+                    cv.imshow(deskewedCanvas, dst);
+                    setSelectedImage(deskewedCanvas.toDataURL());
 
-            let angle = 0;
-            if (lineCount > 0) {
-                angle = angleSum / lineCount;
+                    // Limpar a memória
+                    dst.delete();
+                    M.delete();
+                }
+                
+                // Limpar a memória
+                contour.delete();
+            } else {
+                console.error('Nenhum contorno encontrado na imagem.');
             }
+            
+            // Limpar a memória
+            src.delete();
+            gray.delete();
+            binary.delete();
+            contours.delete();
+            hierarchy.delete();
         };
+        
+        imageElement.onerror = (e) => {
+            console.error('Erro ao carregar a imagem:', e);
+        };
+    } else {
+        setSelectedImage(null);
+        setTextResult("");
     }
-  };
-}
+};
+
 ```
 
 ## Contribuição
@@ -177,4 +164,4 @@ Sinta-se à vontade para contribuir com este projeto. Para isso, siga os passos 
 ## Licença
 
 Este projeto está licenciado sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-```
+
